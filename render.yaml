@@ -1,0 +1,30 @@
+databases:
+  - name: inkpress-db
+    plan: basic-256mb
+    databaseName: inkpress
+    user: inkpress_user
+
+services:
+  - type: web
+    name: inkpress
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npx prisma generate
+    preDeployCommand: npx prisma migrate deploy && npm run seed
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: inkpress-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_NAME
+        value: Inkpress Admin
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
