@@ -1,0 +1,66 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  STAFF
+}
+
+enum PaymentDetail {
+  PAID
+  NOT_PAID
+  DOWN_PAYMENT
+}
+
+enum ReceivingMethod {
+  DELIVERY
+  LOCAL_DELIVERY
+  PICK_UP
+  RECEIVED
+}
+
+enum OrderStatus {
+  IN_PROGRESS
+  DONE
+  CANCELED
+  RECEIVED
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(STAFF)
+  createdAt    DateTime @default(now())
+  orders       Order[]  @relation("OrderLabor")
+}
+
+model Order {
+  id              String          @id @default(uuid()) @db.Uuid
+  orderDate       DateTime        @default(now()) @db.Date
+  laborName       String
+  customerName    String
+  phoneNumber     String
+  orderDetail     String          @db.Text
+  price           Decimal         @db.Decimal(12, 2)
+  paymentDetail   PaymentDetail   @default(NOT_PAID)
+  receivingMethod ReceivingMethod @default(PICK_UP)
+  paymentMethod   String          @default("Cash")
+  status          OrderStatus     @default(IN_PROGRESS)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  labor           User?           @relation("OrderLabor", fields: [laborUserId], references: [id], onDelete: SetNull)
+  laborUserId     String?         @db.Uuid
+
+  @@index([status])
+  @@index([receivingMethod, status])
+  @@index([orderDate])
+  @@index([laborName])
+}

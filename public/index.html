@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <title>Inkpress · Order Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="min-h-screen">
+  <div id="loginScreen" class="min-h-screen grid place-items-center p-5">
+    <form id="loginForm" class="login-card w-full max-w-md">
+      <div class="brand-mark">I</div><p class="eyebrow mt-5">PRINT • DESIGN • DELIVER</p>
+      <h1 class="text-3xl font-extrabold mt-2">Welcome to Inkpress</h1>
+      <p class="muted mt-2 mb-7">Sign in to manage your orders and logistics.</p>
+      <label class="field-label" for="loginEmail">Email</label>
+      <input id="loginEmail" class="field mb-4" type="email" autocomplete="username" required placeholder="you@inkpress.com">
+      <label class="field-label" for="loginPassword">Password</label>
+      <input id="loginPassword" class="field mb-5" type="password" autocomplete="current-password" required placeholder="Your password">
+      <button class="btn btn-primary w-full" type="submit">Sign in</button>
+      <p id="loginError" class="error mt-4"></p>
+    </form>
+  </div>
+
+  <div id="app" class="hidden min-h-screen">
+    <aside class="sidebar">
+      <div class="flex items-center gap-3 px-5 py-6"><div class="brand-mark small">I</div><div><div class="font-extrabold tracking-tight text-lg">INKPRESS</div><div class="text-xs text-slate-400">ORDER CONTROL</div></div></div>
+      <div class="nav-caption">WORKSPACE</div>
+      <nav id="navigation" class="nav-list">
+        <button data-view="progress" class="nav-link active"><span>◷</span> In Progress <b id="progressCount">0</b></button>
+        <button data-view="logistics" class="nav-link"><span>▣</span> Logistics</button>
+        <button data-view="done" class="nav-link"><span>✓</span> Completed</button>
+        <button data-view="canceled" class="nav-link"><span>×</span> Canceled</button>
+        <button data-view="analytics" class="nav-link admin-only"><span>▥</span> Staff Analytics</button>
+      </nav>
+      <div class="sidebar-bottom"><div class="user-chip"><div class="avatar" id="userAvatar">I</div><div class="min-w-0"><div id="userName" class="font-semibold truncate"></div><div id="userRole" class="text-xs text-slate-400"></div></div></div><button id="logoutBtn" class="logout">↪ Sign out</button></div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar"><div><div class="eyebrow">INKPRESS WORKSPACE</div><div id="pageDate" class="text-sm muted"></div></div><button id="newOrderBtn" class="btn btn-primary">＋ <span>New order</span></button></header>
+      <section class="content">
+        <div class="page-heading"><div><p class="eyebrow" id="sectionEyebrow">OVERVIEW</p><h1 id="pageTitle">In Progress</h1><p id="pageDescription" class="muted mt-1">Orders currently being produced.</p></div><div id="orderCount" class="count-pill">0 orders</div></div>
+        <div id="alert" class="alert hidden"></div>
+        <div id="ordersPanel">
+          <div class="toolbar"><div class="search-wrap"><span>⌕</span><input id="searchInput" placeholder="Search customer, phone, details or staff…"></div><select id="sortSelect" class="field compact"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="customer">Customer A–Z</option></select></div>
+          <div id="ordersGrid" class="orders-grid"></div>
+        </div>
+        <div id="analyticsPanel" class="hidden chart-card"><div class="flex justify-between items-center mb-5"><div><h2 class="font-bold text-lg">Staff performance</h2><p class="muted text-sm">Done vs canceled orders by staff member</p></div><span class="chart-tag">ALL TIME</span></div><div class="chart-wrap"><canvas id="staffChart"></canvas></div></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="orderDialog" class="modal">
+    <form id="orderForm" class="modal-inner">
+      <div class="flex justify-between items-start gap-4 mb-6"><div><p class="eyebrow">ORDER ENTRY</p><h2 id="formTitle" class="text-2xl font-extrabold mt-1">Create new order</h2><p class="muted text-sm mt-1">Add the job details below.</p></div><button type="button" class="close-btn" id="closeDialog">×</button></div>
+      <input type="hidden" id="orderId">
+      <div class="form-grid">
+        <div><label class="field-label">Order date</label><input id="orderDate" class="field" type="date" required></div>
+        <div><label class="field-label">Staff / designer</label><input id="laborName" class="field" required maxlength="100" placeholder="Who made this order?"></div>
+        <div><label class="field-label">Customer name</label><input id="customerName" class="field" required maxlength="150"></div>
+        <div><label class="field-label">Phone number</label><input id="phoneNumber" class="field" required maxlength="40"></div>
+        <div class="full"><label class="field-label">Order details</label><textarea id="orderDetail" class="field" rows="3" required placeholder="Print size, quantity, material, finishing…"></textarea></div>
+        <div><label class="field-label">Price</label><input id="price" class="field" type="number" min="0" step="0.01" required></div>
+        <div><label class="field-label">Payment status</label><select id="paymentDetail" class="field"><option value="NOT_PAID">Not Paid</option><option value="PAID">Paid</option><option value="DOWN_PAYMENT">Down Payment</option></select></div>
+        <div><label class="field-label">Receiving method</label><select id="receivingMethod" class="field"><option value="DELIVERY">Delivery</option><option value="LOCAL_DELIVERY">Local Delivery</option><option value="PICK_UP">Pick up</option></select></div>
+        <div><label class="field-label">Payment method</label><input id="paymentMethod" class="field" value="Cash" required placeholder="Cash, Whish…"></div>
+      </div>
+      <p id="formError" class="error mt-3"></p><div class="flex justify-end gap-3 mt-6"><button type="button" id="cancelDialog" class="btn btn-light">Cancel</button><button class="btn btn-primary" type="submit">Save order</button></div>
+    </form>
+  </dialog>
+  <script src="/app.js"></script>
+</body>
+</html>
