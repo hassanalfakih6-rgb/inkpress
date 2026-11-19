@@ -1,6 +1,7 @@
 /* Inkpress Order Manager — browser app (vanilla JS) */
 const $ = id => document.getElementById(id);
-const state = { me: null, view: "dashboard", orders: [], logistics: [], team: [], products: [], companies: [], range: "month", settingsTab: "team", chart: null, logisticsMethod: "" };
+const state = { me: null, view: "dashboard", orders: [], logistics: [], team: [], products: [], companies: [], range: "month", settingsTab: "team", chart: null, logisticsMethod: "", cache: {} };
+const LOADING = `<div class="loading">Loading…</div>`;
 
 // ---------- helpers ----------
 const LABELS = {
@@ -72,6 +73,9 @@ async function showApp(user) {
   const fromHash = location.hash.slice(1);
   loadView(VIEWS[fromHash] && (!VIEWS[fromHash].admin || isAdmin()) ? fromHash : (isAdmin() ? "dashboard" : "progress"));
   setInterval(() => refreshCounts(), 30000);
+  setTimeout(() => ["intake", "progress", "logistics"].forEach(v => {
+    if (!state.cache[v]) api(`/api/orders?view=${v}`).then(r => { state.cache[v] ||= r.orders; }).catch(() => {});
+  }), 800);
 }
 async function boot() {
   try { const data = await api("/api/auth/me"); await showApp(data.user); }
@@ -111,6 +115,7 @@ window.addEventListener("hashchange", () => { const v = location.hash.slice(1); 
 async function loadView(view) {
   const info = VIEWS[view];
   if (!info || (info.admin && !isAdmin())) return;
+  if (state.view !== view) state.filtersFor = null;
   state.view = view;
   if (location.hash.slice(1) !== view) history.replaceState(null, "", `#${view}`);
   document.querySelectorAll(".nav-link").forEach(b => b.classList.toggle("active", b.dataset.view === view));
@@ -136,14 +141,25 @@ async function refreshCounts() {
     $("approvalCount").classList.toggle("hidden", !d.pendingTransfers);
   } catch { /* ignore */ }
 }
-const reload = () => loadView(state.view);
+// After a change, other pages' copies are out of date; keep only the page on screen (it refreshes right away).
+const reload = () => {
+  const keep = state.cache[state.view];
+  state.cache = keep ? { [state.view]: keep } : {};
+  return loadView(state.view);
+};
 
 // ---------- dashboard ----------
 async function renderDashboard() {
   $("headingRight").innerHTML = rangeSelect("dashRange", state.range);
-  $("dashRange").onchange = e => { state.range = e.target.value; renderDashboard().catch(err => toast(err.message)); };
-  const q = rangeQuery(state.range);
-  const d = await api(`/api/finance/summary?${q}`);
+  $("dashRange").onchange = e => { state.range = e.target.value; $("dashboardPanel").innerHTML = LOADING; renderDashboard().catch(err => toast(err.message)); };
+  const q = rangeQuery(state.range), key = `dash:${q}`;
+  if (state.cache[key]) drawDashboard(...state.cache[key]);
+  else if (!$("dashboardPanel").innerHTML) $("dashboardPanel").innerHTML = LOADING;
+  const data = await Promise.all([api(`/api/finance/summary?${q}`), isAdmin() ? api(`/api/finance/entries?${q}`) : null]);
+  state.cache[key] = data;
+  if (state.view === "dashboard" && rangeQuery(state.range) === q) drawDashboard(...data);
+}
+function drawDashboard(d, entryData) {
   const o = d.orders, p = d.performance;
   let html = `
   <div class="report-card">
@@ -205,7 +221,7 @@ async function renderDashboard() {
     fields: [{ id: "method", label: "Received into", type: "select", options: [["CASH", "Cash drawer"], ["WHISH", "Whish"]] }],
     onSubmit: async v => { const r = await post(`/api/finance/settle/${b.dataset.id}`, v); toast(`Settled ${money(r.amount)} for ${r.orders} orders.`, "ok"); await renderDashboard(); }
   }));
-  const { entries } = await api(`/api/finance/entries?${q}`);
+  const entries = entryData?.entries || [];
   $("entriesBox").innerHTML = entries.length ? `<table class="data-table"><thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Account</th><th class="num">Amount</th><th></th></tr></thead><tbody>
     ${entries.map(e => `<tr><td>${dateText(e.entryDate)}</td><td><span class="chip ${e.type.toLowerCase()}">${pretty(e.type)}</span></td><td>${esc(e.description || "—")}</td><td>${pretty(e.method)}</td>
       <td class="num strong ${e.type === "EXPENSE" || e.amount < 0 ? "red" : "green"}">${e.type === "EXPENSE" ? "−" : e.amount < 0 ? "" : "+"}${money(e.amount)}</td>
@@ -240,8 +256,18 @@ function companyForm(after) {
 
 // ---------- order lists ----------
 async function loadOrders(view) {
+  const sameView = state.filtersFor === view;
+  setupOrderFilters(view);
+  // Show the last copy instantly, then refresh in the background.
+  if (state.cache[view]) { state.orders = state.cache[view]; renderOrders(); }
+  else if (!sameView) { state.orders = []; $("claimSection").classList.add("hidden"); $("ordersGrid").innerHTML = LOADING; }
   const { orders } = await api(`/api/orders?view=${view}`);
-  state.orders = orders;
+  state.cache[view] = orders;
+  if (state.view === view) { state.orders = orders; renderOrders(); }
+}
+function setupOrderFilters(view) {
+  if (state.filtersFor === view) return;
+  state.filtersFor = view;
   $("searchInput").value = "";
   const df = $("designerFilter");
   const showDesigner = ["progress", "completed", "canceled"].includes(view);
@@ -254,7 +280,6 @@ async function loadOrders(view) {
   $("priorityFilter").classList.toggle("hidden", !["intake", "progress"].includes(view));
   $("priorityFilter").value = "";
   $("sortSelect").value = view === "progress" ? "priority" : "newest";
-  renderOrders();
 }
 $("searchInput").addEventListener("input", renderOrders);
 $("sortSelect").addEventListener("change", renderOrders);
@@ -354,7 +379,13 @@ function handleCardClick(e) {
   };
   const fn = actions[act];
   if (!fn) return;
-  Promise.resolve(fn()).then(r => { if (r !== false && !["edit", "print", "assign", "reassign", "handoff"].includes(act)) reload(); }).catch(err => toast(err.message));
+  const leaves = ["done", "cancel", "undo", "restore", "received", "delete"].includes(act) || (state.view === "intake" && act === "claim");
+  Promise.resolve(fn()).then(r => {
+    if (r === false || ["edit", "print", "assign", "reassign", "handoff"].includes(act)) return;
+    // Take the card off the page immediately instead of waiting for the refresh.
+    if (leaves) { state.orders = state.orders.filter(x => x.id !== o.id); state.cache[state.view] = state.orders; renderOrders(); }
+    reload();
+  }).catch(err => toast(err.message));
 }
 $("ordersGrid").addEventListener("click", handleCardClick);
 $("claimGrid").addEventListener("click", handleCardClick);
@@ -456,7 +487,7 @@ $("orderForm").addEventListener("submit", async e => {
     await api(id ? `/api/orders/${id}` : "/api/orders", { method: id ? "PATCH" : "POST", body: JSON.stringify(body) });
     $("orderDialog").close();
     toast(id ? "Order updated." : "Order added to Order Intake.", "ok");
-    if (!id && state.view !== "intake" && state.view !== "dashboard") loadView("intake"); else reload();
+    if (!id && state.view !== "intake" && state.view !== "dashboard") { state.cache = {}; loadView("intake"); } else reload();
   } catch (err) { $("formError").textContent = err.message; }
 });
 $("deleteOrderBtn").addEventListener("click", run(async () => {
@@ -484,9 +515,11 @@ function openForm({ eyebrow = "", title, intro, fields, submit = "Save", onSubmi
 
 // ---------- logistics ----------
 async function loadLogistics() {
+  if (state.cache.logistics) { state.logistics = state.cache.logistics; renderLogistics(); }
+  else $("logisticsBody").innerHTML = `<tr><td colspan="5">${LOADING}</td></tr>`;
   const { orders } = await api("/api/orders?view=logistics");
-  state.logistics = orders;
-  renderLogistics();
+  state.cache.logistics = state.logistics = orders;
+  if (state.view === "logistics") renderLogistics();
 }
 $("logisticsSearch").addEventListener("input", () => renderLogistics());
 $("logisticsTabs").addEventListener("click", e => {
@@ -507,7 +540,8 @@ function renderLogistics() {
 $("logisticsBody").addEventListener("click", run(async e => {
   const p = e.target.closest("[data-print]"); if (p) return printInvoice(p.dataset.print);
   const r = e.target.closest("[data-recv]");
-  if (r) { if (!confirm("Mark this order as received / delivered?")) return; await patch(`/api/orders/${r.dataset.recv}/received`); toast("Marked as received.", "ok"); await loadLogistics(); }
+  if (r) { if (!confirm("Mark this order as received / delivered?")) return; await patch(`/api/orders/${r.dataset.recv}/received`); toast("Marked as received.", "ok");
+    state.logistics = state.logistics.filter(o => o.id !== r.dataset.recv); state.cache = { logistics: state.logistics }; renderLogistics(); await loadLogistics(); }
 }));
 
 // ---------- invoice printing ----------
@@ -553,6 +587,7 @@ async function printInvoice(id) {
 // ---------- clients ----------
 async function loadClients() {
   const q = $("clientSearch").value.trim();
+  if (!$("clientsBody").children.length) $("clientsBody").innerHTML = `<tr><td colspan="7">${LOADING}</td></tr>`;
   const { clients } = await api(`/api/clients?q=${encodeURIComponent(q)}`);
   $("clientsBody").innerHTML = clients.length ? clients.map(c => `<tr class="clickable" data-client="${c.id}"><td class="strong">${esc(c.name)}</td><td>${esc(c.phone)}</td><td class="num">${c.orders}</td><td class="num">${c.open}</td><td class="num strong">${money(c.spent)}</td><td>${dateText(c.lastOrder)}</td><td class="right"><button class="action">History</button></td></tr>`).join("")
     : `<tr><td colspan="7" class="empty-row">${q ? "No clients match that search." : "Clients are added automatically when you create orders."}</td></tr>`;
@@ -587,6 +622,16 @@ $("approvalsList").addEventListener("click", run(async e => {
 }));
 
 // ---------- settings ----------
+// Chart.js is only needed for staff analytics, so it is loaded on first use.
+function loadChartJs() {
+  if (window.Chart) return Promise.resolve();
+  return (loadChartJs.p ||= new Promise((resolve, reject) => {
+    const sc = document.createElement("script");
+    sc.src = "https://cdn.jsdelivr.net/npm/chart.js@4";
+    sc.onload = resolve; sc.onerror = () => { loadChartJs.p = null; reject(new Error("Could not load charts.")); };
+    document.head.appendChild(sc);
+  }));
+}
 $("settingsTabs").addEventListener("click", e => {
   const b = e.target.closest("[data-tab]"); if (!b) return;
   state.settingsTab = b.dataset.tab; renderSettings().catch(err => toast(err.message));
@@ -634,7 +679,8 @@ async function renderSettings() {
       ${staff.map(s => `<tr><td class="strong">${esc(s.name)}</td><td class="num">${s.completed}</td><td class="num strong">${money(s.revenue)}</td><td class="num">${money(s.average)}</td><td class="num">${s.inProgress}</td><td class="num">${s.canceled}</td></tr>`).join("")}
       </tbody><tfoot><tr><td>Total</td><td class="num">${tot.completed}</td><td class="num">${money(tot.revenue)}</td><td></td><td></td><td></td></tr></tfoot></table></div>`;
     $("anRange").onchange = e => { state.analyticsRange = e.target.value; renderSettings().catch(err => toast(err.message)); };
-    if (window.Chart) {
+    await loadChartJs().catch(() => {});
+    if (window.Chart && state.settingsTab === "analytics") {
       state.chart = new Chart($("staffChart"), {
         data: {
           labels: staff.map(s => s.name),

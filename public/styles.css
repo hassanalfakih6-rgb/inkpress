@@ -74,3 +74,18 @@
 @media(max-width:1100px){.dash-grid{grid-template-columns:1fr}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.stat-row{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:900px){.nav-caption{display:none}.sidebar-bottom .logout{display:none}}
 @media(max-width:620px){.report-table td{font-size:17px;padding:10px 4px}.report-table th{font-size:9px;padding:6px 3px}.approval{flex-direction:column;align-items:flex-start}.page-heading{flex-direction:column;align-items:flex-start;gap:10px}}
+
+/* ---- utilities (replaces the Tailwind CDN, which rebuilt styles in the browser on every change) ---- */
+.block{display:block}.flex{display:flex}.grid{display:grid}.flex-wrap{flex-wrap:wrap}
+.items-center{align-items:center}.items-start{align-items:flex-start}.justify-between{justify-content:space-between}.justify-end{justify-content:flex-end}.place-items-center{place-items:center}
+.gap-1{gap:4px}.gap-2{gap:8px}.gap-3{gap:12px}.gap-4{gap:16px}
+.mt-1{margin-top:4px}.mt-2{margin-top:8px}.mt-3{margin-top:12px}.mt-4{margin-top:16px}.mt-5{margin-top:20px}.mt-6{margin-top:24px}.mt-8{margin-top:32px}
+.mb-3{margin-bottom:12px}.mb-4{margin-bottom:16px}.mb-5{margin-bottom:20px}.mb-6{margin-bottom:24px}.mb-7{margin-bottom:28px}
+.p-5{padding:20px}.px-5{padding-left:20px;padding-right:20px}.py-6{padding-top:24px;padding-bottom:24px}
+.w-full{width:100%}.max-w-md{max-width:28rem}.min-h-screen{min-height:100vh}.min-w-0{min-width:0}
+.text-xs{font-size:12px;line-height:16px}.text-sm{font-size:14px;line-height:20px}.text-lg{font-size:18px;line-height:28px}.text-xl{font-size:20px;line-height:28px}.text-2xl{font-size:24px;line-height:32px}.text-3xl{font-size:30px;line-height:36px}
+.font-normal{font-weight:400}.font-semibold{font-weight:600}.font-bold{font-weight:700}.font-extrabold{font-weight:800}
+.tracking-tight{letter-spacing:-.025em}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.text-slate-400{color:#94a3b8}.text-slate-600{color:#475569}
+h1,h2,p{margin:0}button,input,select,textarea{font:inherit}
+.loading{grid-column:1/-1;padding:40px 20px;text-align:center;color:#8d98a9;font-size:13px}
