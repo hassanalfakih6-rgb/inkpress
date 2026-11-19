@@ -3,7 +3,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { z } = require("zod");
 const prisma = require("../db");
-const { requireAuth, requireAdmin } = require("../middleware/auth");
+const { requireAuth } = require("../middleware/auth");
 const router = express.Router();
 
 const cookieOptions = () => ({
@@ -33,26 +33,20 @@ router.post("/logout", (_req, res) => {
 
 router.get("/me", requireAuth, (req, res) => res.json({ user: req.user }));
 
-router.post("/staff", requireAuth, requireAdmin, async (req, res, next) => {
+// Any signed-in user can change their own password.
+router.post("/password", requireAuth, async (req, res, next) => {
   try {
-    const parsed = z.object({
-      name: z.string().trim().min(1).max(100),
-      email: z.string().email(),
-      password: z.string().min(12).max(100)
-    }).safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: "Provide a name, valid email, and password of at least 12 characters." });
-    const { name, password } = parsed.data;
-    const email = parsed.data.email.toLowerCase().trim();
-    const passwordHash = await bcrypt.hash(password, 12);
-    const staff = await prisma.user.create({
-      data: { name, email, passwordHash, role: "STAFF" },
-      select: { id: true, name: true, email: true, role: true }
-    });
-    res.status(201).json({ user: staff });
-  } catch (e) {
-    if (e.code === "P2002") return res.status(409).json({ error: "That email is already in use." });
-    next(e);
-  }
+    const parsed = z.object({ current: z.string().min(1), next: z.string().min(8).max(100) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "New password must be at least 8 characters." });
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!(await bcrypt.compare(parsed.data.current, user.passwordHash))) {
+      return res.status(401).json({ error: "Current password is incorrect." });
+    }
+    await prisma.user.update({ where: { id: user.id }, data: { passwordHash: await bcrypt.hash(parsed.data.next, 12) } });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
 });
+
+// Team accounts are managed from Settings → Team (see routes/users.js).
 
 module.exports = router;

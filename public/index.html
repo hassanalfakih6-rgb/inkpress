@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body class="min-h-screen">
-  <div id="loginScreen" class="min-h-screen grid place-items-center p-5">
+  <div id="loginScreen" class="hidden min-h-screen grid place-items-center p-5">
     <form id="loginForm" class="login-card w-full max-w-md">
       <div class="brand-mark">I</div><p class="eyebrow mt-5">PRINT • DESIGN • DELIVER</p>
       <h1 class="text-3xl font-extrabold mt-2">Welcome to Inkpress</h1>
@@ -28,49 +28,131 @@
   <div id="app" class="hidden min-h-screen">
     <aside class="sidebar">
       <div class="flex items-center gap-3 px-5 py-6"><div class="brand-mark small">I</div><div><div class="font-extrabold tracking-tight text-lg">INKPRESS</div><div class="text-xs text-slate-400">ORDER CONTROL</div></div></div>
-      <div class="nav-caption">WORKSPACE</div>
       <nav id="navigation" class="nav-list">
-        <button data-view="progress" class="nav-link active"><span>◷</span> In Progress <b id="progressCount">0</b></button>
+        <div class="nav-caption">OVERVIEW</div>
+        <button data-view="dashboard" class="nav-link"><span>◎</span> Dashboard</button>
+        <div class="nav-caption">ORDERS</div>
+        <button data-view="intake" class="nav-link"><span>⇣</span> Order Intake <b id="intakeCount">0</b></button>
+        <button data-view="progress" class="nav-link"><span>◷</span> In Progress <b id="progressCount">0</b></button>
         <button data-view="logistics" class="nav-link"><span>▣</span> Logistics</button>
-        <button data-view="done" class="nav-link"><span>✓</span> Completed</button>
+        <button data-view="completed" class="nav-link"><span>✓</span> Completed</button>
         <button data-view="canceled" class="nav-link"><span>×</span> Canceled</button>
-        <button data-view="analytics" class="nav-link admin-only"><span>▥</span> Staff Analytics</button>
+        <div class="nav-caption">PEOPLE</div>
+        <button data-view="clients" class="nav-link"><span>☺</span> Clients</button>
+        <button data-view="approvals" class="nav-link admin-only"><span>⇄</span> Approvals <b id="approvalCount" class="warn">0</b></button>
+        <button data-view="settings" class="nav-link admin-only"><span>⚙</span> Settings</button>
       </nav>
-      <div class="sidebar-bottom"><div class="user-chip"><div class="avatar" id="userAvatar">I</div><div class="min-w-0"><div id="userName" class="font-semibold truncate"></div><div id="userRole" class="text-xs text-slate-400"></div></div></div><button id="logoutBtn" class="logout">↪ Sign out</button></div>
+      <div class="sidebar-bottom"><div class="user-chip"><div class="avatar" id="userAvatar">I</div><div class="min-w-0"><div id="userName" class="font-semibold truncate"></div><div id="userRole" class="text-xs text-slate-400"></div></div></div><button id="passwordBtn" class="logout">⚿ Change password</button><button id="logoutBtn" class="logout">↪ Sign out</button></div>
     </aside>
 
     <main class="main-area">
       <header class="topbar"><div><div class="eyebrow">INKPRESS WORKSPACE</div><div id="pageDate" class="text-sm muted"></div></div><button id="newOrderBtn" class="btn btn-primary">＋ <span>New order</span></button></header>
       <section class="content">
-        <div class="page-heading"><div><p class="eyebrow" id="sectionEyebrow">OVERVIEW</p><h1 id="pageTitle">In Progress</h1><p id="pageDescription" class="muted mt-1">Orders currently being produced.</p></div><div id="orderCount" class="count-pill">0 orders</div></div>
+        <div class="page-heading"><div><p class="eyebrow" id="sectionEyebrow">OVERVIEW</p><h1 id="pageTitle">Dashboard</h1><p id="pageDescription" class="muted mt-1"></p></div><div id="headingRight" class="flex gap-2 items-center"></div></div>
         <div id="alert" class="alert hidden"></div>
-        <div id="ordersPanel">
-          <div class="toolbar"><div class="search-wrap"><span>⌕</span><input id="searchInput" placeholder="Search customer, phone, details or staff…"></div><select id="sortSelect" class="field compact"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="customer">Customer A–Z</option></select></div>
+
+        <!-- Dashboard -->
+        <div id="dashboardPanel" class="panel hidden"></div>
+
+        <!-- Order lists: intake / in progress / completed / canceled -->
+        <div id="ordersPanel" class="panel hidden">
+          <div class="toolbar">
+            <div class="search-wrap"><span>⌕</span><input id="searchInput" placeholder="Search order #, customer, phone, details, product or designer…"></div>
+            <select id="designerFilter" class="field compact hidden"></select>
+            <select id="priorityFilter" class="field compact hidden"><option value="">All priorities</option><option value="URGENT">Urgent only</option><option value="HIGH">High & urgent</option></select>
+            <select id="sortSelect" class="field compact"><option value="priority">Priority first</option><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="customer">Customer A–Z</option></select>
+          </div>
+          <div id="claimSection" class="hidden mb-6"><div class="section-title"><span class="dot"></span> Orders to be claimed <span id="claimCount" class="count-pill">0</span></div><div id="claimGrid" class="orders-grid"></div></div>
           <div id="ordersGrid" class="orders-grid"></div>
         </div>
-        <div id="analyticsPanel" class="hidden chart-card"><div class="flex justify-between items-center mb-5"><div><h2 class="font-bold text-lg">Staff performance</h2><p class="muted text-sm">Done vs canceled orders by staff member</p></div><span class="chart-tag">ALL TIME</span></div><div class="chart-wrap"><canvas id="staffChart"></canvas></div></div>
+
+        <!-- Logistics -->
+        <div id="logisticsPanel" class="panel hidden">
+          <div class="toolbar">
+            <div class="search-wrap"><span>⌕</span><input id="logisticsSearch" placeholder="Search order #, client name or number…"></div>
+            <div id="logisticsTabs" class="seg"><button data-m="" class="active">All</button><button data-m="DELIVERY">Far delivery</button><button data-m="LOCAL_DELIVERY">Local delivery</button><button data-m="PICK_UP">Pickup</button></div>
+          </div>
+          <div class="table-card"><table class="data-table"><thead><tr><th>Order #</th><th>Client</th><th>Number</th><th class="num">Total (USD)</th><th></th></tr></thead><tbody id="logisticsBody"></tbody></table></div>
+        </div>
+
+        <!-- Clients -->
+        <div id="clientsPanel" class="panel hidden">
+          <div class="toolbar"><div class="search-wrap"><span>⌕</span><input id="clientSearch" placeholder="Search clients by name or number…"></div></div>
+          <div class="table-card"><table class="data-table"><thead><tr><th>Client</th><th>Number</th><th class="num">Orders</th><th class="num">Open</th><th class="num">Spent (USD)</th><th>Last order</th><th></th></tr></thead><tbody id="clientsBody"></tbody></table></div>
+        </div>
+
+        <!-- Approvals (admin) -->
+        <div id="approvalsPanel" class="panel hidden">
+          <div id="approvalsList" class="grid gap-3"></div>
+          <div class="section-title mt-8">Recent decisions</div>
+          <div class="table-card"><table class="data-table"><thead><tr><th>Order #</th><th>From</th><th>To</th><th>Requested by</th><th>Decision</th><th>By</th></tr></thead><tbody id="approvalsHistory"></tbody></table></div>
+        </div>
+
+        <!-- Settings (admin) -->
+        <div id="settingsPanel" class="panel hidden">
+          <div id="settingsTabs" class="seg mb-5"><button data-tab="team" class="active">Team & logins</button><button data-tab="analytics">Staff analytics</button><button data-tab="products">Product types</button><button data-tab="companies">Delivery companies</button><button data-tab="printing">Printing</button></div>
+          <div id="settingsBody"></div>
+        </div>
       </section>
     </main>
   </div>
 
+  <!-- Order create / admin edit -->
   <dialog id="orderDialog" class="modal">
     <form id="orderForm" class="modal-inner">
-      <div class="flex justify-between items-start gap-4 mb-6"><div><p class="eyebrow">ORDER ENTRY</p><h2 id="formTitle" class="text-2xl font-extrabold mt-1">Create new order</h2><p class="muted text-sm mt-1">Add the job details below.</p></div><button type="button" class="close-btn" id="closeDialog">×</button></div>
+      <div class="flex justify-between items-start gap-4 mb-6"><div><p class="eyebrow">ORDER ENTRY</p><h2 id="formTitle" class="text-2xl font-extrabold mt-1">Create new order</h2><p id="formSubtitle" class="muted text-sm mt-1">New orders go to Order Intake.</p></div><button type="button" class="close-btn" data-close>×</button></div>
       <input type="hidden" id="orderId">
       <div class="form-grid">
-        <div><label class="field-label">Order date</label><input id="orderDate" class="field" type="date" required></div>
-        <div><label class="field-label">Staff / designer</label><input id="laborName" class="field" required maxlength="100" placeholder="Who made this order?"></div>
+        <div><label class="field-label">Phone number</label><input id="phoneNumber" class="field" required maxlength="40" placeholder="Client's number"><p id="clientHint" class="hint"></p></div>
         <div><label class="field-label">Customer name</label><input id="customerName" class="field" required maxlength="150"></div>
-        <div><label class="field-label">Phone number</label><input id="phoneNumber" class="field" required maxlength="40"></div>
+        <div><label class="field-label">Order date</label><input id="orderDate" class="field" type="date" required></div>
+        <div><label class="field-label">Product type</label><select id="productTypeId" class="field"></select></div>
         <div class="full"><label class="field-label">Order details</label><textarea id="orderDetail" class="field" rows="3" required placeholder="Print size, quantity, material, finishing…"></textarea></div>
-        <div><label class="field-label">Price</label><input id="price" class="field" type="number" min="0" step="0.01" required></div>
+        <div class="full"><label class="field-label">Note / description <span class="muted">(optional)</span></label><textarea id="note" class="field" rows="2" placeholder="Anything the designer should know"></textarea></div>
+        <div><label class="field-label">Price (USD)</label><input id="price" class="field" type="number" min="0" step="0.01" required></div>
         <div><label class="field-label">Payment status</label><select id="paymentDetail" class="field"><option value="NOT_PAID">Not Paid</option><option value="PAID">Paid</option><option value="DOWN_PAYMENT">Down Payment</option></select></div>
-        <div><label class="field-label">Receiving method</label><select id="receivingMethod" class="field"><option value="DELIVERY">Delivery</option><option value="LOCAL_DELIVERY">Local Delivery</option><option value="PICK_UP">Pick up</option></select></div>
-        <div><label class="field-label">Payment method</label><input id="paymentMethod" class="field" value="Cash" required placeholder="Cash, Whish…"></div>
+        <div id="amountPaidWrap" class="hidden"><label class="field-label">Down payment (USD)</label><input id="amountPaid" class="field" type="number" min="0" step="0.01"></div>
+        <div><label class="field-label">Payment method</label><select id="paymentMethod" class="field"><option>Cash</option><option>Whish</option></select></div>
+        <div><label class="field-label">Receiving method</label><select id="receivingMethod" class="field"><option value="PICK_UP">Pickup</option><option value="LOCAL_DELIVERY">Local Delivery</option><option value="DELIVERY">Far Delivery</option></select></div>
+        <div id="companyWrap" class="hidden"><label class="field-label">Delivery company</label><select id="deliveryCompanyId" class="field"></select></div>
+        <div class="admin-only"><label class="field-label">Priority</label><select id="priority" class="field"><option value="NORMAL">Normal</option><option value="HIGH">High</option><option value="URGENT">Urgent</option></select></div>
+        <div class="edit-only"><label class="field-label">Status</label><select id="status" class="field"><option value="INTAKE">Intake</option><option value="IN_PROGRESS">In Progress</option><option value="DONE">Done</option><option value="RECEIVED">Received</option><option value="CANCELED">Canceled</option></select></div>
+        <div class="edit-only"><label class="field-label">Assigned designer</label><select id="assignee" class="field"></select></div>
+        <div class="edit-only full"><label class="check"><input type="checkbox" id="deliverySettled"> Delivery company has already handed over the money for this order</label></div>
       </div>
-      <p id="formError" class="error mt-3"></p><div class="flex justify-end gap-3 mt-6"><button type="button" id="cancelDialog" class="btn btn-light">Cancel</button><button class="btn btn-primary" type="submit">Save order</button></div>
+      <p id="formError" class="error mt-3"></p>
+      <div class="flex justify-between gap-3 mt-6"><button type="button" id="deleteOrderBtn" class="btn btn-danger edit-only">Delete order</button><span></span><div class="flex gap-3"><button type="button" class="btn btn-light" data-close>Cancel</button><button class="btn btn-primary" type="submit">Save order</button></div></div>
     </form>
   </dialog>
+
+  <!-- Choose a person -->
+  <dialog id="pickDialog" class="modal small">
+    <div class="modal-inner">
+      <div class="flex justify-between items-start gap-4 mb-4"><div><p class="eyebrow" id="pickEyebrow">ASSIGN</p><h2 id="pickTitle" class="text-xl font-extrabold mt-1">Assign order</h2><p id="pickSubtitle" class="muted text-sm mt-1"></p></div><button type="button" class="close-btn" data-close>×</button></div>
+      <div id="pickList" class="pick-list"></div>
+      <p id="pickError" class="error mt-3"></p>
+    </div>
+  </dialog>
+
+  <!-- Generic small form -->
+  <dialog id="formDialog" class="modal small">
+    <form id="genericForm" class="modal-inner">
+      <div class="flex justify-between items-start gap-4 mb-5"><div><p class="eyebrow" id="gEyebrow"></p><h2 id="gTitle" class="text-xl font-extrabold mt-1"></h2></div><button type="button" class="close-btn" data-close>×</button></div>
+      <div id="gFields" class="grid gap-4"></div>
+      <p id="gError" class="error mt-3"></p>
+      <div class="flex justify-end gap-3 mt-5"><button type="button" class="btn btn-light" data-close>Cancel</button><button class="btn btn-primary" type="submit" id="gSubmit">Save</button></div>
+    </form>
+  </dialog>
+
+  <!-- Client history -->
+  <dialog id="clientDialog" class="modal wide">
+    <div class="modal-inner">
+      <div class="flex justify-between items-start gap-4 mb-5"><div><p class="eyebrow">CLIENT</p><h2 id="clientTitle" class="text-2xl font-extrabold mt-1"></h2><p id="clientSub" class="muted text-sm mt-1"></p></div><button type="button" class="close-btn" data-close>×</button></div>
+      <div id="clientStats" class="stat-row mb-5"></div>
+      <div class="table-card"><table class="data-table"><thead><tr><th>Order #</th><th>Date</th><th>Product</th><th>Details</th><th>Designer</th><th>Status</th><th class="num">Total</th></tr></thead><tbody id="clientOrders"></tbody></table></div>
+    </div>
+  </dialog>
+
   <script src="/app.js"></script>
 </body>
 </html>
