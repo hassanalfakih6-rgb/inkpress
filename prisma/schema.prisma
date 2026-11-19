@@ -7,6 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// STAFF = designer
 enum Role {
   ADMIN
   STAFF
@@ -18,6 +19,8 @@ enum PaymentDetail {
   DOWN_PAYMENT
 }
 
+// DELIVERY is shown in the app as "Far Delivery".
+// RECEIVED is a legacy value kept for orders created before v2.
 enum ReceivingMethod {
   DELIVERY
   LOCAL_DELIVERY
@@ -26,41 +29,164 @@ enum ReceivingMethod {
 }
 
 enum OrderStatus {
+  INTAKE
   IN_PROGRESS
   DONE
   CANCELED
   RECEIVED
 }
 
+enum Priority {
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum TransferStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELED
+}
+
+enum CashMethod {
+  CASH
+  WHISH
+}
+
+enum EntryType {
+  EXPENSE
+  SETTLEMENT
+  ADJUSTMENT
+}
+
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  name         String
-  email        String   @unique
-  passwordHash String
-  role         Role     @default(STAFF)
-  createdAt    DateTime @default(now())
-  orders       Order[]  @relation("OrderLabor")
+  id                String            @id @default(uuid()) @db.Uuid
+  name              String
+  email             String            @unique
+  passwordHash      String
+  role              Role              @default(STAFF)
+  createdAt         DateTime          @default(now())
+  orders            Order[]           @relation("OrderLabor")
+  createdOrders     Order[]           @relation("OrderCreator")
+  transfersFrom     TransferRequest[] @relation("TransferFrom")
+  transfersTo       TransferRequest[] @relation("TransferTo")
+  transfersAsked    TransferRequest[] @relation("TransferRequester")
+  transfersDecided  TransferRequest[] @relation("TransferDecider")
+  cashEntries       CashEntry[]
+}
+
+model Client {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  phone     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+
+  @@index([name])
+}
+
+model ProductType {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  createdAt DateTime @default(now())
+  orders    Order[]
+}
+
+model DeliveryCompany {
+  id          String      @id @default(uuid()) @db.Uuid
+  name        String      @unique
+  phone       String?
+  createdAt   DateTime    @default(now())
+  orders      Order[]
+  cashEntries CashEntry[]
 }
 
 model Order {
-  id              String          @id @default(uuid()) @db.Uuid
-  orderDate       DateTime        @default(now()) @db.Date
-  laborName       String
-  customerName    String
-  phoneNumber     String
-  orderDetail     String          @db.Text
-  price           Decimal         @db.Decimal(12, 2)
-  paymentDetail   PaymentDetail   @default(NOT_PAID)
-  receivingMethod ReceivingMethod @default(PICK_UP)
-  paymentMethod   String          @default("Cash")
-  status          OrderStatus     @default(IN_PROGRESS)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  labor           User?           @relation("OrderLabor", fields: [laborUserId], references: [id], onDelete: SetNull)
-  laborUserId     String?         @db.Uuid
+  id                String           @id @default(uuid()) @db.Uuid
+  orderNumber       Int              @unique @default(autoincrement())
+  orderDate         DateTime         @default(now()) @db.Date
+  laborName         String           @default("")
+  customerName      String
+  phoneNumber       String
+  orderDetail       String           @db.Text
+  note              String?          @db.Text
+  price             Decimal          @db.Decimal(12, 2)
+  amountPaid        Decimal          @default(0) @db.Decimal(12, 2)
+  paymentDetail     PaymentDetail    @default(NOT_PAID)
+  receivingMethod   ReceivingMethod  @default(PICK_UP)
+  paymentMethod     String           @default("Cash")
+  status            OrderStatus      @default(INTAKE)
+  priority          Priority         @default(NORMAL)
+  openToAll         Boolean          @default(false)
+  deliverySettled   Boolean          @default(false)
+  deliverySettledAt DateTime?
+  completedAt       DateTime?
+  receivedAt        DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  labor             User?            @relation("OrderLabor", fields: [laborUserId], references: [id], onDelete: SetNull)
+  laborUserId       String?          @db.Uuid
+  createdBy         User?            @relation("OrderCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById       String?          @db.Uuid
+  client            Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  clientId          String?          @db.Uuid
+  productType       ProductType?     @relation(fields: [productTypeId], references: [id], onDelete: SetNull)
+  productTypeId     String?          @db.Uuid
+  deliveryCompany   DeliveryCompany? @relation(fields: [deliveryCompanyId], references: [id], onDelete: SetNull)
+  deliveryCompanyId String?          @db.Uuid
+  transfers         TransferRequest[]
 
   @@index([status])
   @@index([receivingMethod, status])
   @@index([orderDate])
   @@index([laborName])
+  @@index([laborUserId])
+  @@index([clientId])
+  @@index([deliveryCompanyId, deliverySettled])
+}
+
+model TransferRequest {
+  id            String         @id @default(uuid()) @db.Uuid
+  order         Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId       String         @db.Uuid
+  fromUser      User?          @relation("TransferFrom", fields: [fromUserId], references: [id], onDelete: SetNull)
+  fromUserId    String?        @db.Uuid
+  toUser        User           @relation("TransferTo", fields: [toUserId], references: [id], onDelete: Cascade)
+  toUserId      String         @db.Uuid
+  requestedBy   User           @relation("TransferRequester", fields: [requestedById], references: [id], onDelete: Cascade)
+  requestedById String         @db.Uuid
+  decidedBy     User?          @relation("TransferDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedById   String?        @db.Uuid
+  status        TransferStatus @default(PENDING)
+  createdAt     DateTime       @default(now())
+  decidedAt     DateTime?
+
+  @@index([status])
+  @@index([orderId, status])
+}
+
+// EXPENSE subtracts from a balance, SETTLEMENT (money handed over by a
+// delivery company) adds to it, ADJUSTMENT is a signed correction.
+model CashEntry {
+  id                String           @id @default(uuid()) @db.Uuid
+  type              EntryType
+  method            CashMethod
+  amount            Decimal          @db.Decimal(12, 2)
+  description       String           @default("")
+  entryDate         DateTime         @default(now()) @db.Date
+  deliveryCompany   DeliveryCompany? @relation(fields: [deliveryCompanyId], references: [id], onDelete: SetNull)
+  deliveryCompanyId String?          @db.Uuid
+  createdBy         User?            @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdById       String?          @db.Uuid
+  createdAt         DateTime         @default(now())
+
+  @@index([type, entryDate])
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
 }
