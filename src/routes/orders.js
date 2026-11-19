@@ -78,10 +78,12 @@ router.get("/", async (req, res) => {
 });
 
 router.get("/counts", async (_req, res) => {
-  const rows = await prisma.order.groupBy({ by: ["status"], _count: { _all: true } });
+  const [rows, pendingTransfers, toClaim] = await Promise.all([
+    prisma.order.groupBy({ by: ["status"], _count: { _all: true } }),
+    prisma.transferRequest.count({ where: { status: "PENDING" } }),
+    prisma.order.count({ where: { status: "IN_PROGRESS", openToAll: true } })
+  ]);
   const counts = Object.fromEntries(rows.map(r => [r.status, r._count._all]));
-  const pendingTransfers = await prisma.transferRequest.count({ where: { status: "PENDING" } });
-  const toClaim = await prisma.order.count({ where: { status: "IN_PROGRESS", openToAll: true } });
   res.json({ counts, pendingTransfers, toClaim });
 });
 
