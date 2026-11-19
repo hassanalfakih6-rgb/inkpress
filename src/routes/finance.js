@@ -19,8 +19,10 @@ function range(q, field) {
 const HELD_WHERE = { status: "RECEIVED", deliverySettled: false, deliveryCompanyId: { not: null }, receivingMethod: { not: "PICK_UP" } };
 
 async function balances() {
-  const paid = await prisma.order.groupBy({ by: ["paymentMethod"], where: { status: { not: "CANCELED" } }, _sum: { amountPaid: true } });
-  const entries = await prisma.cashEntry.groupBy({ by: ["type", "method"], _sum: { amount: true } });
+  const [paid, entries] = await Promise.all([
+    prisma.order.groupBy({ by: ["paymentMethod"], where: { status: { not: "CANCELED" } }, _sum: { amountPaid: true } }),
+    prisma.cashEntry.groupBy({ by: ["type", "method"], _sum: { amount: true } })
+  ]);
   const b = { CASH: 0, WHISH: 0 };
   for (const p of paid) b[methodKey(p.paymentMethod)] += num(p._sum.amountPaid);
   for (const e of entries) b[e.method] += (e.type === "EXPENSE" ? -1 : 1) * num(e._sum.amount);
@@ -28,13 +30,15 @@ async function balances() {
 }
 
 async function heldByCompanies() {
-  const companies = await prisma.deliveryCompany.findMany({ orderBy: { name: "asc" } });
-  const rows = await prisma.order.groupBy({ by: ["deliveryCompanyId"], where: HELD_WHERE, _sum: { price: true, amountPaid: true }, _count: { _all: true } });
-  const inTransit = await prisma.order.groupBy({
-    by: ["deliveryCompanyId"],
-    where: { status: { in: ["IN_PROGRESS", "DONE"] }, deliveryCompanyId: { not: null }, receivingMethod: { not: "PICK_UP" } },
-    _count: { _all: true }
-  });
+  const [companies, rows, inTransit] = await Promise.all([
+    prisma.deliveryCompany.findMany({ orderBy: { name: "asc" } }),
+    prisma.order.groupBy({ by: ["deliveryCompanyId"], where: HELD_WHERE, _sum: { price: true, amountPaid: true }, _count: { _all: true } }),
+    prisma.order.groupBy({
+      by: ["deliveryCompanyId"],
+      where: { status: { in: ["IN_PROGRESS", "DONE"] }, deliveryCompanyId: { not: null }, receivingMethod: { not: "PICK_UP" } },
+      _count: { _all: true }
+    })
+  ]);
   return companies.map(c => {
     const r = rows.find(x => x.deliveryCompanyId === c.id);
     return {
@@ -48,7 +52,15 @@ async function heldByCompanies() {
 
 router.get("/summary", async (req, res) => {
   const orderRange = range(req.query, "orderDate");
-  const byStatus = await prisma.order.groupBy({ by: ["status"], where: orderRange, _count: { _all: true }, _sum: { price: true } });
+  const admin = req.user.role === "ADMIN";
+  // Run every query at once instead of one after another.
+  const [byStatus, perf, exp, companies, bal] = await Promise.all([
+    prisma.order.groupBy({ by: ["status"], where: orderRange, _count: { _all: true }, _sum: { price: true } }),
+    prisma.order.groupBy({ by: ["receivingMethod"], where: { ...orderRange, status: { not: "CANCELED" } }, _count: { _all: true }, _sum: { price: true } }),
+    admin ? prisma.cashEntry.aggregate({ where: { type: "EXPENSE", ...range(req.query, "entryDate") }, _sum: { amount: true } }) : null,
+    admin ? heldByCompanies() : null,
+    admin ? balances() : null
+  ]);
   const count = s => byStatus.find(r => r.status === s)?._count._all || 0;
   const sum = s => num(byStatus.find(r => r.status === s)?._sum.price);
   const orders = {
@@ -60,22 +72,17 @@ router.get("/summary", async (req, res) => {
     canceled: count("CANCELED"),
     totalSales: round(sum("DONE") + sum("RECEIVED"))
   };
-  const perf = await prisma.order.groupBy({
-    by: ["receivingMethod"], where: { ...orderRange, status: { not: "CANCELED" } }, _count: { _all: true }, _sum: { price: true }
-  });
   const p = m => ({ orders: perf.find(r => r.receivingMethod === m)?._count._all || 0, sales: round(num(perf.find(r => r.receivingMethod === m)?._sum.price)) });
   const performance = { far: p("DELIVERY"), local: p("LOCAL_DELIVERY"), pickup: p("PICK_UP") };
 
   const result = { orders, performance };
-  if (req.user.role === "ADMIN") {
-    const exp = await prisma.cashEntry.aggregate({ where: { type: "EXPENSE", ...range(req.query, "entryDate") }, _sum: { amount: true } });
+  if (admin) {
     const expenses = round(num(exp._sum.amount));
-    const companies = await heldByCompanies();
     result.money = {
       sales: orders.totalSales,
       expenses,
       net: round(orders.totalSales - expenses),
-      ...(await balances()),
+      ...bal,
       held: round(companies.reduce((a, c) => a + c.held, 0))
     };
     result.companies = companies;
