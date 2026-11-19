@@ -13,60 +13,38 @@ A standalone order and logistics application for a printing press / graphic desi
 
 The browser UI is served by the same Express application as the API, so the deployment is same-origin and does not need a separate frontend host or CORS configuration.
 
-## Included features
+## What's in v2
 
-- Admin and Staff roles
-- Admin-only lifecycle changes (Done, Canceled, Undo, Received)
-- Staff can create orders and edit order details, but cannot change order status
-- In Progress, Logistics, Completed, Canceled, and Admin-only Staff Analytics views
-- Logistics includes Delivery / Local Delivery / Pick up orders until the order reaches Received
-- Mark as Received atomically changes both `status` and `receivingMethod`
-- Search, sorting, responsive layout, and order entry/edit modal
-- Admin can create staff accounts from the API (see below)
+**Pages**
+- **Dashboard** — orders report (Total Orders, In Progress, Completed, Received, Canceled, Total Sales), performance by Far Delivery / Local Delivery / Pickup, and for admins: sales, expenses, net, cash in drawer, Whish (mobile money), money held by delivery companies (with **Settle** and **Add delivery company** buttons), expenses and balance adjustments. Filter by today / week / month / year / all time.
+- **Order Intake** — every new order lands here, sorted by date. Admins set priority (Normal / High / Urgent), add notes, assign to one designer, to themselves, or to **all designers**, edit or delete permanently. Designers can only take an intake order for themselves.
+- **In Progress** — everyone sees every order; designers see **My orders** by default and can filter by designer or priority. Orders sent to all designers appear first under **Orders to be claimed** until someone claims them. Mark as done → Completed, Cancel → Canceled. Admin-only **Edit** changes absolutely everything.
+- **Hand-offs** — a designer can take an order from another designer directly, but sending their own order to someone else needs admin approval in **Approvals**.
+- **Logistics** — read-only: order number, client name, number and total in USD, filtered by delivery type, with **Print invoice** and (admin) **Mark as received**.
+- **Completed / Canceled** — undo, restore, print and edit for admins.
+- **Clients** — every client who ordered, searchable by name or number, with order count, open orders, total spent and full history. Built automatically from orders (phone number is the key); the order form recognises returning clients.
+- **Settings (admin)** — team & logins (add, edit, reset password, delete designers/admins), staff analytics (completed orders and revenue per designer, with chart), product types (shown as a dropdown on every order), delivery companies, and invoice printing (business details, footer, A4 / A5 / 80 mm receipt, copies).
+- Everyone can change their own password from the sidebar.
 
-## Directory structure
+**How money is counted**
+- Money paid at the shop (Paid or Down Payment) goes to Cash or Whish, depending on the order's payment method.
+- When a Pickup (or own-driver delivery) order is marked Received, the remaining balance is recorded as paid.
+- When an order that uses a delivery company is marked Received, the balance counts as **held by that company** until an admin clicks **Settle**, which moves it into Cash or Whish.
+- Expenses come out of Cash or Whish; adjustments (for example an opening balance) can be positive or negative.
+- Total Sales = value of completed and received orders. Canceled orders are excluded everywhere.
 
-```text
-inkpress/
-├── prisma/
-│   ├── migrations/
-│   │   ├── migration_lock.toml
-│   │   └── 20261118000000_init/migration.sql
-│   ├── schema.prisma
-│   └── seed.js
-├── public/
-│   ├── app.js
-│   ├── index.html
-│   └── styles.css
-├── src/
-│   ├── db.js
-│   ├── validation.js
-│   ├── middleware/auth.js
-│   └── routes/
-│       ├── auth.js
-│       └── orders.js
-├── .env.example
-├── .gitignore
-├── package.json
-├── render.yaml
-├── server.js
-└── README.md
-```
+## Roles
 
-## Data model
-
-The Prisma schema creates:
-
-- `User`: UUID, name, unique email, bcrypt password hash, role
-- `Order`: UUID, date, staff/labor name, customer, phone, details, decimal price, payment state, receiving method, payment method, status, timestamps, and optional link to the staff user who entered it
-
-Database enums are stored as:
-- `Role`: `ADMIN`, `STAFF`
-- `PaymentDetail`: `PAID`, `NOT_PAID`, `DOWN_PAYMENT`
-- `ReceivingMethod`: `DELIVERY`, `LOCAL_DELIVERY`, `PICK_UP`, `RECEIVED`
-- `OrderStatus`: `IN_PROGRESS`, `DONE`, `CANCELED`, `RECEIVED`
-
-The interface displays friendly labels. Price is a PostgreSQL `DECIMAL(12,2)`, not a floating-point database value.
+| Action | Designer | Admin |
+| --- | --- | --- |
+| Create orders (go to Intake) | ✓ | ✓ |
+| Take an intake order / claim an order sent to everyone | ✓ (for themselves) | ✓ |
+| Assign to a specific designer or to all designers | | ✓ |
+| Set priority, edit any field, delete | | ✓ |
+| Take an order from another designer | ✓ | ✓ |
+| Send own order to another designer | needs admin approval | ✓ directly |
+| Mark done / cancel | own orders | any |
+| Undo, restore, mark received, settle, expenses, settings | | ✓ |
 
 ## Run locally
 
@@ -105,52 +83,40 @@ Requirements: Node.js 20+ and PostgreSQL 14+.
 
 For local schema development after changing `prisma/schema.prisma`, run `npx prisma migrate dev --name describe_change`, then commit the generated migration folder.
 
+Run the permission tests with `npm test`.
+
+## Upgrading an existing database
+
+Two migrations ship with v2 (`20261119000000_intake_status`, `20261119000100_workflow_finance_clients`). `npx prisma migrate deploy` (already part of the Render pre-deploy command) applies them. Existing orders keep their status, get order numbers starting at #1001 by creation date, and the client database is built from their phone numbers. Fully paid and received orders count as paid. Down payments recorded before v2 had no amount, so edit those orders if you want the cash figures to be exact.
+
 ## API overview
 
-All order routes except the health check require a signed-in user.
+All routes except health and login require a signed-in user. (A) = admin only.
 
-| Method | Endpoint | Access | Purpose |
-|---|---|---|---|
-| GET | `/api/health` | Public | Render health check |
-| POST | `/api/auth/login` | Public | Sign in |
-| POST | `/api/auth/logout` | Signed in | Clear session cookie |
-| GET | `/api/auth/me` | Signed in | Current user |
-| POST | `/api/auth/staff` | Admin | Create a staff account |
-| GET | `/api/orders?view=progress` | Signed in | List a view (`progress`, `logistics`, `done`, `canceled`, `received`, `all`) |
-| POST | `/api/orders` | Signed in | Create order; status is always `IN_PROGRESS` |
-| PATCH | `/api/orders/:id` | Signed in | Edit order fields; status cannot be supplied |
-| PATCH | `/api/orders/:id/status` | Admin | `DONE`, `CANCELED`, or `IN_PROGRESS` (undo) |
-| PATCH | `/api/orders/:id/received` | Admin | Only a Done order; sets status and receiving method to `RECEIVED` |
-| GET | `/api/orders/analytics/staff` | Admin | Done/canceled counts by labor name |
-
-Example admin-only staff creation request (send while signed in; cookie is automatically used by same-origin browser clients):
-
-```http
-POST /api/auth/staff
-Content-Type: application/json
-
-{
-  "name": "Designer One",
-  "email": "designer@inkpress.com",
-  "password": "Use-A-Strong-Unique-Password"
-}
-```
-
-## Push to GitHub
-
-1. Create a new **private** GitHub repository, e.g. `inkpress-order-manager`.
-2. In this project folder, initialize Git and push:
-
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial Inkpress order manager"
-   git branch -M main
-   git remote add origin https://github.com/YOUR-USERNAME/inkpress-order-manager.git
-   git push -u origin main
-   ```
-
-3. Do not commit `.env`; it is excluded by `.gitignore`. Never place database passwords, JWT secrets, or real staff credentials in source control.
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | /api/orders?view=intake\|progress\|logistics\|completed\|canceled\|all | List orders |
+| GET | /api/orders/counts | Badge counts |
+| POST | /api/orders | Create (always Intake) |
+| PATCH | /api/orders/:id (A) | Edit everything |
+| PATCH | /api/orders/:id/priority (A) | Set priority |
+| DELETE | /api/orders/:id (A) | Delete permanently |
+| POST | /api/orders/:id/claim | Take intake / open order |
+| POST | /api/orders/:id/assign (A) | `{userId}` or `{all:true}` |
+| POST | /api/orders/:id/reassign | `{userId}` — direct or approval request |
+| PATCH | /api/orders/:id/status | DONE / CANCELED (assignee or admin), IN_PROGRESS (A) |
+| PATCH | /api/orders/:id/received (A) | Done → Received |
+| GET | /api/orders/:id/invoice | Invoice data + print settings |
+| GET/POST | /api/transfers, /api/transfers/:id/approve\|reject (A) | Hand-off approvals |
+| GET | /api/users/team | Team list |
+| GET/POST/PATCH/DELETE | /api/users (A) | Designers and logins |
+| GET/POST/DELETE | /api/catalog/product-types, /api/catalog/delivery-companies | Lists (manage: A) |
+| GET | /api/clients?q=, /api/clients/lookup?phone=, /api/clients/:id | Client database |
+| GET | /api/finance/summary?from=&to= | Dashboard (money parts: A) |
+| GET/POST/DELETE | /api/finance/entries (A) | Expenses & adjustments |
+| POST | /api/finance/settle/:companyId (A) | Settle a delivery company |
+| GET | /api/finance/staff (A) | Staff analytics |
+| GET/PUT | /api/finance/print-settings | Printing settings (save: A) |
 
 ## Deploy to Render
 
@@ -162,7 +128,7 @@ The included `render.yaml` is a Render Blueprint that provisions a PostgreSQL da
 4. When prompted, enter `ADMIN_EMAIL` and a strong `ADMIN_PASSWORD` (at least 12 characters). `JWT_SECRET` is generated by Render. Confirm the resources.
 5. Wait for the build and deploy. The pre-deploy command applies migrations and seeds the first admin. The service health check uses `/api/health`.
 6. Open the generated `https://...onrender.com` URL and sign in with the admin credentials you configured.
-7. Create staff accounts through the admin-only API endpoint described above. Do not share the admin login with staff.
+7. Create designer logins from Settings → Team & logins. Do not share the admin login with staff.
 
 **Important:** Render plan availability and pricing can change. Review the plan and database storage/backup options in Render before confirming. For a production business system, enable appropriate database backups and keep a separate copy of critical business data.
 
@@ -173,14 +139,6 @@ The included `render.yaml` is a Render Blueprint that provisions a PostgreSQL da
 - Login attempts are rate-limited; Helmet sets common security headers.
 - Server-side authorization protects status-changing routes. Hiding buttons in the UI is not the security boundary.
 - The admin seed uses `upsert` and does not overwrite an existing admin password. To change an existing admin password, use a dedicated password-reset workflow or update the account securely; changing `ADMIN_PASSWORD` after the first seed does not rotate it.
-- The app currently assumes a single business currency and displays the numeric price without a currency symbol. Add your preferred currency label (for example USD or LBP) before using it operationally.
+- All amounts are in USD.
 - Tailwind and Chart.js are loaded from CDNs in this starter. For a stricter offline / supply-chain-controlled production build, install and bundle these assets locally.
 - Add HTTPS (Render provides it), keep dependencies updated, and periodically test database restore procedures.
-
-## Before going live
-
-- Change the seeded admin password to a unique strong password.
-- Confirm the Render database plan, backups, and retention meet your business needs.
-- Decide the business currency and add its display label.
-- Test Staff and Admin accounts separately, especially status permissions and the Received workflow.
-- Confirm whether staff should be allowed to edit all orders or only orders they created. The current implementation allows signed-in staff to edit any order's details, as requested.
